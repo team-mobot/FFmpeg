@@ -370,9 +370,8 @@ static int encode_headers(AVCodecContext *avctx, const AVFrame *pict)
     png_write_chunk(&s->bytestream, MKTAG('p', 'H', 'Y', 's'), s->buf, 9);
 
     if (pict->metadata != NULL) {
-        for (AVDictionaryEntry *entry = av_dict_get(pict->metadata, "", NULL, AV_DICT_IGNORE_SUFFIX);
-             entry!=NULL;
-             entry = av_dict_get(pict->metadata, "", entry, AV_DICT_IGNORE_SUFFIX)) {
+        AVDictionaryEntry *entry = NULL;
+        while (entry = av_dict_get(pict->metadata, "", entry, AV_DICT_IGNORE_SUFFIX)) {
             size_t key_len = strlen(entry->key);
             size_t val_len = strlen(entry->value);
             memcpy(s->buf, entry->key, key_len + 1);
