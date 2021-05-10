@@ -344,14 +344,14 @@ static int png_get_gama(enum AVColorTransferCharacteristic trc, uint8_t *buf)
 }
 
 static int is_valid_text_entry(AVCodecContext *avctx, size_t key_len, size_t val_len, char *text_key) {
-    #define PNG_CHUNK_MAX_LENGTH (2 ^ 31 - 1)
+    #define PNG_CHUNK_MAX_LENGTH (1 << 31 - 1)
     #define TEXT_KEY_MAX_LENGTH 79
     #define TEXT_KEY_MIN_LENGTH 1
     #define TEXT_KEY_VALID_CHARACTER(c) ((c >=32 && c <=126) || (c >= 161 && c <= 255))
 
     size_t chunk_content_len = key_len + 1 + val_len;
 
-    if (key_len < 1) {
+    if (key_len < TEXT_KEY_MIN_LENGTH) {
         av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk with empty key.\n");
         return 0;
     }
