@@ -27,6 +27,7 @@
 #include "apng.h"
 
 #include "libavutil/avassert.h"
+#include "libavutil/avstring.h"
 #include "libavutil/crc.h"
 #include "libavutil/libm.h"
 #include "libavutil/opt.h"
@@ -342,6 +343,45 @@ static int png_get_gama(enum AVColorTransferCharacteristic trc, uint8_t *buf)
     return 1;
 }
 
+static int is_valid_text_entry(AVCodecContext *avctx, size_t key_len, size_t val_len, char *text_key) {
+    #define PNG_CHUNK_MAX_LENGTH (1 << 31 - 1)
+    #define TEXT_KEY_MAX_LENGTH 79
+    #define TEXT_KEY_MIN_LENGTH 1
+    #define TEXT_KEY_VALID_CHARACTER(c) ((c >=32 && c <=126) || (c >= 161 && c <= 255))
+
+    size_t chunk_content_len = key_len + 1 + val_len;
+
+    if (key_len < TEXT_KEY_MIN_LENGTH) {
+        av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk with empty key.\n");
+        return 0;
+    }
+    if (key_len > TEXT_KEY_MAX_LENGTH) {
+        av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk with key length %lu longer than %d max length. (\"%s\")\n", key_len, TEXT_KEY_MAX_LENGTH, text_key);
+        return 0;
+    }
+    if (chunk_content_len > PNG_CHUNK_MAX_LENGTH) {
+        av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk with length %lu greater than max length %d.\n", chunk_content_len, PNG_CHUNK_MAX_LENGTH);
+        return 0;
+    }
+    if (av_isspace(text_key[0]) || av_isspace(text_key[key_len - 1])) {
+        av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk key with leading or trailing spaces, \"%s\"\n", text_key);
+        return 0;
+    }
+
+    for (size_t i = 0; i < key_len; ++i) {
+        if (!TEXT_KEY_VALID_CHARACTER(text_key[i])) {
+            av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk key with invalid characters, \"%s\"\n", text_key);
+            return 0;
+        }
+        if (((i + 1) < key_len) && av_isspace(text_key[i]) && av_isspace(text_key[i + 1])) {
+            av_log(avctx, AV_LOG_WARNING, "Invalid tEXt chunk key with consecutive spaces, \"%s\"\n", text_key);
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 static int encode_headers(AVCodecContext *avctx, const AVFrame *pict)
 {
     AVFrameSideData *side_data;
@@ -370,14 +410,15 @@ static int encode_headers(AVCodecContext *avctx, const AVFrame *pict)
     png_write_chunk(&s->bytestream, MKTAG('p', 'H', 'Y', 's'), s->buf, 9);
 
     if (pict->metadata != NULL) {
-        for (AVDictionaryEntry *entry = av_dict_get(pict->metadata, "", NULL, AV_DICT_IGNORE_SUFFIX);
-             entry!=NULL;
-             entry = av_dict_get(pict->metadata, "", entry, AV_DICT_IGNORE_SUFFIX)) {
+        AVDictionaryEntry *entry = NULL;
+        while (entry = av_dict_get(pict->metadata, "", entry, AV_DICT_IGNORE_SUFFIX)) {
             size_t key_len = strlen(entry->key);
             size_t val_len = strlen(entry->value);
-            memcpy(s->buf, entry->key, key_len + 1);
-            memcpy(s->buf + key_len + 1, entry->value, val_len);
-            png_write_chunk(&s->bytestream, MKTAG('t', 'E', 'X', 't'), s->buf, key_len + 1 + val_len);
+            if (is_valid_text_entry(avctx, key_len, val_len, entry->key)) {
+                memcpy(s->buf, entry->key, key_len + 1);
+                memcpy(s->buf + key_len + 1, entry->value, val_len);
+                png_write_chunk(&s->bytestream, MKTAG('t', 'E', 'X', 't'), s->buf, key_len + 1 + val_len);
+            }
         }
     }
 
